@@ -1,0 +1,186 @@
+Raspberry Pi Python Code (with LoRa communication):
+import serial
+import mariadb
+from datetime import datetime
+from digitalio import DigitalInOut, Direction
+import board
+import busio
+import adafruit_ssd1306
+import adafruit_rfm9x
+# Configure the serial port
+serial_port = '/dev/ttyAMA0' # Update with your specific serial port
+baud_rate = 9600
+# Configure the MariaDB connection
+database = 'your_database_name'
+user = 'your_username'
+password = 'your_password'
+host = 'localhost'
+# Configure LoRa parameters
+frequency = 915.0 # Update with your desired frequency in MHz
+ssid = 'your_ssid' # Update with your LoRa module's ssid
+rst = DigitalInOut(board.D17)
+cs = DigitalInOut(board.D8)
+spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
+rfm9x = adafruit_rfm9x.RFM9x(spi, cs, rst, frequency, ssid)
+# Connect to the database
+try:
+conn = mariadb.connect(
+user=user,
+password=password,
+host=host,
+database=database
+)
+cursor = conn.cursor()
+print("Connected to MariaDB!")
+
+except mariadb.Error as e:
+print(f"Error connecting to MariaDB: {e}")
+exit()
+# Configure and open the serial port
+try:
+ser = serial.Serial(serial_port, baud_rate)
+print("Serial port opened!")
+except serial.SerialException as e:
+print(f"Error opening serial port: {e}")
+exit()
+# Read and process the serial and LoRa data
+while True:
+# Read a line from the serial port
+line = ser.readline().decode().strip()
+# Split the line into individual values
+values = line.split(',')
+# Extract the sensor data
+tank = int(values[0])
+flow_rate = float(values[1])
+water_level = float(values[2])
+pH_level = float(values[3])
+# Get the current date and time
+current_datetime = datetime.now()
+date = current_datetime.date()
+time = current_datetime.time()
+# Create a new table for each update if it doesn't exist
+table_name = f"update_{current_datetime.strftime('%Y%m%d_%H%M%S')}"
+try:
+cursor.execute(f"CREATE TABLE IF NOT EXISTS {table_name} (tank INT, flow_rate
+FLOAT, water_level FLOAT, "
+
+"pH_level FLOAT, date DATE, time TIME)")
+print(f"Table {table_name} created!")
+except mariadb.Error as e:
+
+print(f"Error creating table {table_name}: {e}")
+# Set specific columns as NULL for certain tanks
+if tank == 1:
+flow_rate = None
+pH_level = None
+elif tank == 2:
+flow_rate = None
+elif tank == 3:
+water_level = None
+pH_level = None
+# Insert the sensor data into the table
+try:
+cursor.execute(f"INSERT INTO {table_name} (tank, flow_rate, water_level, pH_level,
+date, time) "
+
+"VALUES (?, ?, ?, ?, ?, ?)",
+(tank, flow_rate, water_level, pH_level, date, time))
+conn.commit()
+print(f"Data logged into {table_name} table!")
+except mariadb.Error as e:
+print(f"Error logging data into {table_name} table: {e}")
+# Print the received sensor data
+print(f"Tank: {tank}, Flow Rate: {flow_rate}, Water Level: {water_level}, pH Level:
+{pH_level}, "
+f"Date: {date}, Time: {time}")
+# Send the sensor data over LoRa
+lora_data = f"{tank},{flow_rate},{water_level},{pH_level},{date},{time}"
+rfm9x.send(lora_data)
+# Close the database connection and serial port
+conn.close()
+ser.close()
+
+Arduino Mega Code (with LoRa communication):
+#include <SPI.h>
+#include <LoRa.h>
+// Configure LoRa parameters
+#define BAND 915E6 // Update with your desired frequency in Hz
+#define SS_PIN 10 // LoRa chip select pin
+#define RST_PIN 9 // LoRa reset pin
+#define DI0_PIN 2 // LoRa IRQ pin
+// Define sensor pin connections
+#define FLOW_RATE_PIN A0
+#define WATER_LEVEL_PIN A1
+#define PH_LEVEL_PIN A2
+// Initialize LoRa
+void setupLoRa()
+{
+LoRa.setPins(SS_PIN, RST_PIN, DI0_PIN);
+if (!LoRa.begin(BAND))
+{
+Serial.println("LoRa initialization failed. Check your connections.");
+while (true)
+;
+}
+Serial.println("LoRa initialized successfully!");
+}
+// Read flow rate from sensor
+float readFlowRate()
+{
+int rawValue = analogRead(FLOW_RATE_PIN);
+// Convert the raw value to flow rate
+float flowRate = map(rawValue, 0, 1023, 0, 10); // Update the mapping according to
+your sensor
+return flowRate;
+
+}
+// Read water level from sensor
+float readWaterLevel()
+{
+int rawValue = analogRead(WATER_LEVEL_PIN);
+// Convert the raw value to water level
+float waterLevel = map(rawValue, 0, 1023, 0, 100); // Update the mapping according to
+your sensor
+return waterLevel;
+}
+// Read pH level from sensor
+float readPHLevel()
+{
+int rawValue = analogRead(PH_LEVEL_PIN);
+// Convert the raw value to pH level
+float pHLevel = map(rawValue, 0, 1023, 0, 14); // Update the mapping according to your
+sensor
+return pHLevel;
+}
+void setup()
+{
+Serial.begin(9600);
+while (!Serial)
+;
+// Initialize LoRa
+setupLoRa();
+}
+void loop()
+{
+// Read sensor data
+float flowRate = readFlowRate();
+float waterLevel = readWaterLevel();
+float pHLevel = readPHLevel();
+
+// Construct the sensor data as a string
+String sensorData = String(1) + "," + String(flowRate) + "," + String(waterLevel) + "," +
+
+String(pHLevel);
+// Send the sensor data over LoRa
+LoRa.beginPacket();
+LoRa.print(sensorData);
+LoRa.endPacket();
+// Print the sensor data to the Serial monitor
+Serial.print("Flow Rate: ");
+Serial.print(flowRate);
+Serial.print(" | Water Level: ");
+Serial.print(waterLevel);
+Serial.print(" | pH Level: ");
+Serial.println(pHLevel);
+delay(5000); // Adjust the delay based on your desired data logging frequency
+}

@@ -1,0 +1,81 @@
+import serial
+import mariadb
+from datetime import datetime
+# Configure the serial port
+serial_port = '/dev/ttyAMA0' # Update with your specific serial port
+baud_rate = 9600
+# Configure the MariaDB connection
+database = 'your_database_name'
+user = 'your_username'
+password = 'your_password'
+host = 'localhost'
+# Connect to the database
+try:
+conn = mariadb.connect(
+user=user,
+password=password,
+host=host,
+database=database
+)
+cursor = conn.cursor()
+print("Connected to MariaDB!")
+except mariadb.Error as e:
+print(f"Error connecting to MariaDB: {e}")
+exit()
+# Configure and open the serial port
+try:
+ser = serial.Serial(serial_port, baud_rate)
+print("Serial port opened!")
+except serial.SerialException as e:
+print(f"Error opening serial port: {e}")
+exit()
+# Read and process the serial data
+while True:
+# Read a line from the serial port
+line = ser.readline().decode().strip()
+# Split the line into individual values
+values = line.split(',')
+
+# Extract the sensor data
+tank = int(values[0])
+flow_rate = float(values[1])
+water_level = float(values[2])
+pH_level = float(values[3])
+# Get the current date and time
+current_datetime = datetime.now()
+date = current_datetime.date()
+time = current_datetime.time()
+# Create a new table for each update if it doesn't exist
+table_name = f"update_{current_datetime.strftime('%Y%m%d_%H%M%S')}"
+try:
+cursor.execute(f"CREATE TABLE IF NOT EXISTS {table_name} (tank INT, flow_rate
+FLOAT, water_level FLOAT, "
+
+"pH_level FLOAT, date DATE, time TIME)")
+print(f"Table {table_name} created!")
+except mariadb.Error as e:
+print(f"Error creating table {table_name}: {e}")
+# Set specific columns as NULL for certain tanks
+if tank == 1:
+flow_rate = None
+pH_level = None
+elif tank == 2:
+flow_rate = None
+elif tank == 3:
+water_level = None
+pH_level = None
+# Insert the sensor data into the table
+try:
+cursor.execute(f"INSERT INTO {table_name} (tank, flow_rate, water_level, pH_level, date,
+time) "
+
+"VALUES (?, ?, ?, ?, ?, ?)",
+(tank, flow_rate, water_level, pH_level, date, time))
+conn.commit()
+print(f"Data logged into {table_name} table!")
+except mariadb.Error as e:
+print(f"Error inserting data into {table_name} table: {e}")
+# Close the serial port and database connection
+ser.close()
+
+conn.close()
